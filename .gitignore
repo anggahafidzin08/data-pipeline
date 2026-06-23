@@ -1,6 +1,6 @@
-# environment
 .env
 venv/
+test.*
 
 # IDE
 .vscode/
@@ -9,10 +9,21 @@ venv/
 .claude
 .remember
 .superpowers
+*/superpowers/*
 
-# logs
+# logs & other output test results
 *.log
+*.csv
+*.xls*
 
 *.pyc
 __pycache__/
+*.pyc
 .pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+.DS_Store
+logs/
+*.log
