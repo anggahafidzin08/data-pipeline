@@ -1,0 +1,18 @@
+# environment
+.env
+venv/
+
+# IDE
+.vscode/
+
+# Claude Code & project files
+.claude
+.remember
+.superpowers
+
+# logs
+*.log
+
+*.pyc
+__pycache__/
+.pytest_cache/
