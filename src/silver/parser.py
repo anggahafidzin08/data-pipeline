@@ -55,16 +55,17 @@ class SpecParser:
                 result["cpu_type"] = spec[cpu_start:cpu_end].strip()
 
             # RAM: first occurrence of XGB (not followed by TB or other letters except "SSD", "HDD", etc.)
-            gb_matches = re.finditer(r'(\d+)\s*(GB|TB)', spec)
+            pattern = r'(\d+\s*GB)\b.*?(\d+\s*(?:GB|TB)(?:\s*\+\s*\d+\s*GB)?(?:\s*SSD)?)'
+            gb_matches = re.search(pattern, spec).groups()
             gb_list = list(gb_matches)
             if gb_list:
                 # First match is typically RAM
                 first_match = gb_list[0]
-                result["builtin_ram"] = first_match.group(0)
+                result["builtin_ram"] = first_match
 
                 # Storage: if there are multiple GB/TB entries, take the last one
                 if len(gb_list) > 1:
-                    result["builtin_memory"] = gb_list[-1].group(0)
+                    result["builtin_memory"] = gb_list[-1]
 
             # Operating System: e.g., "Windows 8.1", "Linux", "Win7 Pro 64bit"
             os_match = re.search(

@@ -15,6 +15,7 @@ test.*
 *.log
 *.csv
 *.xls*
+.checkpoints/*
 
 *.pyc
 __pycache__/

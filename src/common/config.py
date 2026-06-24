@@ -45,8 +45,11 @@ class Settings:
         self.pipeline_name: str = merged.get("pipeline", {}).get("pipeline_name", "ecommerce_pipeline")
         self.source_id: str = merged.get("pipeline", {}).get("source_id", "ecommerce_site")
         self.scraper: dict = merged.get("scraper", {})
+        self.tables: dict = merged.get("tables", {})
+        # Keep old configs for backward compatibility
         self.data_contracts: dict = merged.get("data_contracts", {})
         self.scd2_config: dict = merged.get("scd2_config", {})
+        self.checkpoint_config: dict = merged.get("checkpoint_config", {})
 
 # Singleton instance
 _settings: Optional[Settings] = None

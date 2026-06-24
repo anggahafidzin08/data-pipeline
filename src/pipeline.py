@@ -1,5 +1,7 @@
 import logging
 import sys
+import json
+import os
 from datetime import datetime
 from src.common.logging import setup_logging
 from src.common.config import get_settings
@@ -11,6 +13,8 @@ from src.silver.scd2_merge import SCD2Merger
 from src.common.exceptions import PipelineError
 
 logger = logging.getLogger(__name__)
+
+CHECKPOINT_DIR = ".checkpoints"
 
 
 class Pipeline:
@@ -27,6 +31,77 @@ class Pipeline:
             "errors": []
         }
         self.db = get_supabase_client()
+        self._ensure_checkpoint_dir()
+
+    def _ensure_checkpoint_dir(self):
+        """Ensure checkpoint directory exists."""
+        if not os.path.exists(CHECKPOINT_DIR):
+            os.makedirs(CHECKPOINT_DIR)
+
+    def _get_checkpoint(self, layer: str) -> tuple[str, str]:
+        """
+        Read last checkpoint timestamp for a layer.
+        Returns (timestamp, timestamp_column) tuple.
+        Checkpoints are stored by table name in a single .checkpoints/checkpoints.json file.
+        """
+        checkpoint_file = os.path.join(CHECKPOINT_DIR, "checkpoints.json")
+
+        # Get source table and column name from config
+        config = self.settings.checkpoint_config.get(layer, {})
+        table_name = config.get("source_table", "raw_products")
+        column_name = config.get("timestamp_column", "loaded_at")
+
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, 'r') as f:
+                    checkpoints = json.load(f)
+                    timestamp = checkpoints.get(table_name, "1970-01-01T00:00:00Z")
+                    logger.info(f"Checkpoint for table '{table_name}': {timestamp}")
+                    return timestamp, column_name
+            except Exception as e:
+                logger.warning(f"Failed to read checkpoint file: {e}")
+                return "1970-01-01T00:00:00Z", column_name
+
+        logger.info(f"No checkpoint file yet, starting from epoch for table '{table_name}'")
+        return "1970-01-01T00:00:00Z", column_name
+
+    def _save_checkpoint(self, layer: str, timestamp):
+        """
+        Save checkpoint timestamp for a layer in the central checkpoints.json file.
+        Checkpoints are keyed by table name for flexibility.
+        """
+        checkpoint_file = os.path.join(CHECKPOINT_DIR, "checkpoints.json")
+        try:
+            # Convert datetime to ISO format string if needed
+            if isinstance(timestamp, datetime):
+                timestamp_str = timestamp.isoformat() + "Z"
+            else:
+                timestamp_str = str(timestamp)
+
+            # Get table name from config
+            table_name = (
+                self.settings.checkpoint_config.get(layer, {}).get("source_table", "raw_products")
+            )
+
+            # Read existing checkpoints
+            checkpoints = {}
+            if os.path.exists(checkpoint_file):
+                try:
+                    with open(checkpoint_file, 'r') as f:
+                        checkpoints = json.load(f)
+                except Exception as e:
+                    logger.warning(f"Failed to read existing checkpoints: {e}")
+
+            # Update this table's checkpoint
+            checkpoints[table_name] = timestamp_str
+
+            # Write back
+            with open(checkpoint_file, 'w') as f:
+                json.dump(checkpoints, f, indent=2)
+
+            logger.info(f"Saved checkpoint for table '{table_name}': {timestamp_str}")
+        except Exception as e:
+            logger.error(f"Failed to save checkpoint for {layer}: {e}")
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -88,78 +163,165 @@ class Pipeline:
             logger.warning(f"Table initialization skipped (may already exist or no DB): {e}")
 
     def run(self):
-        """Execute full pipeline: Bronze → Silver → Gold."""
+        """Execute full pipeline: Bronze → Silver → Gold for all configured tables."""
         try:
             logger.info(f"Starting pipeline run at {self.start_time}")
+            logger.info(f"Configured tables: {list(self.settings.tables.keys())}")
 
             # Initialize tables if needed
             self._init_db()
 
-            # Phase 1: Bronze
-            logger.info("=== BRONZE LAYER ===")
-            self._run_bronze()
+            # Process each configured table through all layers
+            for table_name, table_config in self.settings.tables.items():
+                if not table_config.get("enabled", True):
+                    logger.info(f"Skipping disabled table: {table_name}")
+                    continue
 
-            # Phase 2: Silver
-            logger.info("=== SILVER LAYER ===")
-            self._run_silver()
+                logger.info(f"\n{'='*60}")
+                logger.info(f"Processing table: {table_name}")
+                logger.info(f"{'='*60}")
 
-            # Phase 3: Gold (TBD - simplified for MVP)
-            logger.info("=== GOLD LAYER ===")
-            logger.info("Gold layer loading skipped for MVP")
+                try:
+                    # Phase 1: Bronze
+                    if "bronze" in table_config:
+                        logger.info(f"[{table_name}] BRONZE LAYER")
+                        self._run_bronze(table_name, table_config["bronze"])
+
+                    # Phase 2: Silver
+                    if "silver" in table_config:
+                        logger.info(f"[{table_name}] SILVER LAYER")
+                        self._run_silver(table_name, table_config["silver"])
+
+                    # Phase 3: Gold
+                    if "gold" in table_config:
+                        logger.info(f"[{table_name}] GOLD LAYER")
+                        logger.info(f"[{table_name}] Gold layer loading skipped for MVP")
+
+                except Exception as e:
+                    logger.error(f"Failed to process table {table_name}: {e}")
+                    self.stats["errors"].append(f"{table_name}: {str(e)}")
 
             # Report
-            logger.info("=== PIPELINE COMPLETE ===")
+            logger.info(f"\n{'='*60}")
+            logger.info("PIPELINE COMPLETE")
+            logger.info(f"{'='*60}")
             self._report_stats()
 
         except PipelineError as e:
             logger.error(f"Pipeline failed: {e}")
             sys.exit(1)
 
-    def _run_bronze(self):
-        """Run Bronze layer: scrape and ingest."""
+    def _run_bronze(self, table_name: str, bronze_config: dict):
+        """Run Bronze layer: scrape and ingest for a specific table."""
         try:
             scraper = Scraper()
             raw_products = scraper.scrape()
-            logger.info(f"Scraped {len(raw_products)} products")
+            logger.info(f"[{table_name}] Scraped {len(raw_products)} records")
 
             ingester = BronzeIngester()
             inserted = ingester.ingest(raw_products)
-            self.stats["bronze_inserted"] = inserted
+            self.stats["bronze_inserted"] += inserted
+            logger.info(f"[{table_name}] Inserted {inserted} records into {bronze_config.get('target_table')}")
 
         except Exception as e:
-            logger.error(f"Bronze layer failed: {e}")
-            raise PipelineError(f"Bronze layer failed: {e}")
+            logger.error(f"[{table_name}] Bronze layer failed: {e}")
+            raise PipelineError(f"Bronze layer failed for {table_name}: {e}")
 
-    def _run_silver(self):
-        """Run Silver layer: transform and merge."""
+    def _run_silver(self, table_name: str, silver_config: dict):
+        """Run Silver layer: transform and merge with delta loading for a specific table."""
         try:
-            # Read from Bronze
             db = get_supabase_client()
 
-            # Get new records from Bronze since last run (TBD: track last run time)
-            raw_records = db.execute_query(
-                """
-                SELECT id, composite_key, raw_data, hash_raw
-                FROM raw_products
-                ORDER BY loaded_at DESC
+            source_table = silver_config.get("source_table", "raw_products")
+            target_table = silver_config.get("target_table", "products_clean")
+            timestamp_col = silver_config.get("source_timestamp_column", "loaded_at")
+
+            logger.info(f"[{table_name}] Reading from {source_table} → {target_table}")
+
+            # Get checkpoint for this target ← source combination
+            # Structure: {target_table: {source_table: timestamp}}
+            checkpoint_file = os.path.join(CHECKPOINT_DIR, "checkpoints.json")
+            checkpoint_ts = "1970-01-01T00:00:00Z"
+
+            if os.path.exists(checkpoint_file):
+                try:
+                    with open(checkpoint_file, 'r') as f:
+                        checkpoints = json.load(f)
+                        # Get checkpoint for this specific target_table → source_table pair
+                        checkpoint_ts = (
+                            checkpoints.get(target_table, {})
+                            .get(source_table, "1970-01-01T00:00:00Z")
+                        )
+                except Exception as e:
+                    logger.warning(f"[{table_name}] Failed to read checkpoint: {e}")
+
+            logger.info(f"[{table_name}] Delta load {source_table} → {target_table} since {checkpoint_ts}")
+
+            # Delta load: only get records newer than checkpoint
+            query = f"""
+                SELECT id, composite_key, raw_data, hash_raw, {timestamp_col}
+                FROM {source_table}
+                WHERE {timestamp_col} > %s
+                ORDER BY {timestamp_col} ASC
                 LIMIT 1000
-                """
-            )
-            logger.info(f"Reading {len(raw_records)} records from Bronze")
+            """
+            raw_records = db.execute_query(query, (checkpoint_ts,))
+            logger.info(f"[{table_name}] Read {len(raw_records)} new records from {source_table}")
+
+            if not raw_records:
+                logger.info(f"[{table_name}] No new records to process")
+                return
 
             # Transform
             transformer = Transformer()
             cleaned_products = transformer.transform(raw_records)
+            logger.info(f"[{table_name}] Transformed {len(cleaned_products)} records")
 
-            # Merge (SCD2)
-            merger = SCD2Merger()
-            inserted, updated = merger.merge(cleaned_products)
-            self.stats["silver_inserted"] = inserted
-            self.stats["silver_updated"] = updated
+            # Merge (SCD2) - only if enabled in config
+            if silver_config.get("scd2", {}).get("enabled", False):
+                merger = SCD2Merger()
+                inserted, updated = merger.merge(cleaned_products)
+                self.stats["silver_inserted"] += inserted
+                self.stats["silver_updated"] += updated
+                logger.info(f"[{table_name}] SCD2 merge: {inserted} inserted, {updated} updated into {target_table}")
+            else:
+                logger.info(f"[{table_name}] SCD2 merge disabled, skipping")
+
+            # Save checkpoint: update for this target_table ← source_table pair
+            if raw_records:
+                latest_timestamp = raw_records[-1].get(timestamp_col)
+                if latest_timestamp:
+                    # Convert datetime to ISO string if needed
+                    if isinstance(latest_timestamp, datetime):
+                        latest_timestamp_str = latest_timestamp.isoformat() + "Z"
+                    else:
+                        latest_timestamp_str = str(latest_timestamp)
+
+                    # Update checkpoint file with nested structure
+                    checkpoint_file = os.path.join(CHECKPOINT_DIR, "checkpoints.json")
+                    checkpoints = {}
+                    if os.path.exists(checkpoint_file):
+                        try:
+                            with open(checkpoint_file, 'r') as f:
+                                checkpoints = json.load(f)
+                        except Exception as e:
+                            logger.warning(f"[{table_name}] Failed to read existing checkpoints: {e}")
+
+                    # Ensure target_table key exists
+                    if target_table not in checkpoints:
+                        checkpoints[target_table] = {}
+
+                    # Update the source_table checkpoint under this target_table
+                    checkpoints[target_table][source_table] = latest_timestamp_str
+
+                    # Write back
+                    with open(checkpoint_file, 'w') as f:
+                        json.dump(checkpoints, f, indent=2)
+                    logger.info(f"[{table_name}] Checkpoint saved: {target_table} ← {source_table} = {latest_timestamp_str}")
 
         except Exception as e:
-            logger.error(f"Silver layer failed: {e}")
-            raise PipelineError(f"Silver layer failed: {e}")
+            logger.error(f"[{table_name}] Silver layer failed: {e}")
+            raise PipelineError(f"Silver layer failed for {table_name}: {e}")
 
     def _report_stats(self):
         """Report pipeline statistics."""

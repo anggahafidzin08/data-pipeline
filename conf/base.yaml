@@ -8,9 +8,16 @@ scraper:
   retry_attempts: 2
   delay_between_requests: 1
 
-data_contracts:
-  bronze:
-    raw_products:
+# Table-driven configuration: define each business object and its pipeline
+# Each table flows through Bronze → Silver → Gold with independent configurations
+tables:
+  products:
+    description: "Laptop products from webscraper.io"
+    enabled: true
+
+    bronze:
+      target_table: "raw_products"
+      scraper_url: "https://webscraper.io/test-sites/e-commerce/static/computers/laptops"
       checks:
         - type: "row_count"
           min_rows: 100
@@ -19,8 +26,12 @@ data_contracts:
           max_age_hours: 25
           severity: "WARN"
 
-  silver:
-    products_clean:
+    silver:
+      source_table: "raw_products"
+      source_timestamp_column: "loaded_at"
+      target_table: "products_clean"
+      transformer: "parse_specs"
+
       required_fields: ["product_id", "product_name", "price"]
       field_validations:
         - field: "price"
@@ -28,31 +39,50 @@ data_contracts:
           min: 0.01
           max: 1000000
           severity: "FAIL"
+
       checks:
         - type: "row_count"
           min_rows: 90
           severity: "FAIL"
 
-  gold:
-    fact_products:
+      # SCD2 (Slowly Changing Dimension Type 2) configuration
+      scd2:
+        enabled: true
+        composite_key:
+          - "product_id"
+          - "cpu_type"
+          - "builtin_ram"
+          - "builtin_memory"
+        hash_diff_fields:
+          - "price"
+          - "screen_size"
+          - "cpu_type"
+          - "builtin_ram"
+          - "builtin_memory"
+          - "operating_system"
+
+    gold:
+      source_table: "products_clean"
+      source_timestamp_column: "insert_ts"
+      target_table: "fact_products"
+      aggregator: "product_dimensions"
+
       checks:
         - type: "row_count"
           min_rows: 90
           severity: "FAIL"
 
-scd2_config:
-  silver:
-    products_clean:
-      composite_key:
-        - "product_id"
-        - "cpu_type"
-        - "builtin_ram"
-        - "builtin_memory"
-      hash_diff_fields:
-        - "price"
-        - "stock"
-        - "screen_size"
-        - "cpu_type"
-        - "builtin_ram"
-        - "builtin_memory"
-        - "operating_system"
+  # Template for adding more tables (e.g., categories, reviews)
+  # categories:
+  #   description: "Product categories"
+  #   enabled: false
+  #   bronze:
+  #     target_table: "raw_categories"
+  #   silver:
+  #     source_table: "raw_categories"
+  #     target_table: "categories_clean"
+  #     source_timestamp_column: "loaded_at"
+  #   gold:
+  #     source_table: "categories_clean"
+  #     target_table: "fact_categories"
+  #     source_timestamp_column: "insert_ts"
