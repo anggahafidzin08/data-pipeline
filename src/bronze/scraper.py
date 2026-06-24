@@ -87,6 +87,7 @@ class Scraper:
 
                 price_elem = elem.find("h4", class_="price")
                 price = price_elem.text.strip() if price_elem else None
+                currency = price_elem.find("meta", itemprop="priceCurrency")["content"] if price_elem else None
 
                 desc_elem = elem.find("p", class_="description")
                 spec = desc_elem.text.strip() if desc_elem else None
@@ -97,6 +98,8 @@ class Scraper:
 
                     product_data = {
                         "brand": brand,
+                        "price": price,
+                        "currency": currency,
                         "price": price,
                         "spec": spec
                     }
