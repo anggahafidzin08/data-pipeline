@@ -26,11 +26,74 @@ class Pipeline:
             "silver_updated": 0,
             "errors": []
         }
+        self.db = get_supabase_client()
+
+    def _init_db(self):
+        """Create tables if they don't exist."""
+        try:
+            # Bronze layer
+            self.db.execute_update("""
+                CREATE TABLE IF NOT EXISTS raw_products (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    source_id VARCHAR(255) NOT NULL,
+                    composite_key VARCHAR(255) NOT NULL,
+                    raw_data JSONB NOT NULL,
+                    scraped_at TIMESTAMP NOT NULL,
+                    loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    hash_raw VARCHAR(32) NOT NULL,
+                    UNIQUE(source_id, composite_key, hash_raw)
+                );
+                CREATE INDEX IF NOT EXISTS idx_raw_products_composite_key
+                    ON raw_products(source_id, composite_key);
+                CREATE INDEX IF NOT EXISTS idx_raw_products_loaded_at
+                    ON raw_products(loaded_at);
+            """)
+
+            # Silver layer
+            self.db.execute_update("""
+                CREATE TABLE IF NOT EXISTS products_clean (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    source_id VARCHAR(255),
+                    composite_key VARCHAR(255),
+                    hash_diff VARCHAR(32),
+                    product_id VARCHAR(255),
+                    product_name VARCHAR(500),
+                    category VARCHAR(255),
+                    price DECIMAL(10,2),
+                    currency VARCHAR(10),
+                    stock INTEGER,
+                    description TEXT,
+                    screen_size VARCHAR(50),
+                    cpu_type VARCHAR(255),
+                    builtin_ram VARCHAR(50),
+                    builtin_memory VARCHAR(50),
+                    operating_system VARCHAR(100),
+                    url TEXT,
+                    insert_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    end_ts TIMESTAMP,
+                    is_current BOOLEAN DEFAULT TRUE,
+                    source_hash VARCHAR(32),
+                    validation_status VARCHAR(20),
+                    validation_errors TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_products_clean_composite_key
+                    ON products_clean(source_id, composite_key);
+                CREATE INDEX IF NOT EXISTS idx_products_clean_is_current
+                    ON products_clean(is_current);
+                CREATE INDEX IF NOT EXISTS idx_products_clean_insert_ts
+                    ON products_clean(insert_ts);
+            """)
+            logger.info("Database tables initialized")
+        except Exception as e:
+            logger.warning(f"Table initialization skipped (may already exist or no DB): {e}")
 
     def run(self):
         """Execute full pipeline: Bronze → Silver → Gold."""
         try:
             logger.info(f"Starting pipeline run at {self.start_time}")
+
+            # Initialize tables if needed
+            self._init_db()
 
             # Phase 1: Bronze
             logger.info("=== BRONZE LAYER ===")

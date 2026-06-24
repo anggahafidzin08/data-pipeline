@@ -1,6 +1,9 @@
 import os
 from typing import Optional
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
 
 class Settings:
     """Load settings from environment variables and YAML config files."""
@@ -43,6 +46,7 @@ class Settings:
         self.source_id: str = merged.get("pipeline", {}).get("source_id", "ecommerce_site")
         self.scraper: dict = merged.get("scraper", {})
         self.data_contracts: dict = merged.get("data_contracts", {})
+        self.scd2_config: dict = merged.get("scd2_config", {})
 
 # Singleton instance
 _settings: Optional[Settings] = None

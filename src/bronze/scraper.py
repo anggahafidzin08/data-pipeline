@@ -1,6 +1,7 @@
 import logging
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from typing import List, Dict, Any, Optional
 from src.common.config import get_settings
 from src.common.utils import calculate_hash
@@ -40,13 +41,10 @@ class Scraper:
                 logger.info(f"Found {len(page_products)} products on page {page_count + 1}")
 
                 # Get next page link
-                next_link = soup.find("a", {"aria-label": "Next"})
+                next_link = soup.find("a", class_="page-link next")
                 if next_link and "href" in next_link.attrs:
                     next_href = next_link["href"]
-                    if next_href.startswith("http"):
-                        current_url = next_href
-                    else:
-                        current_url = self.source_url + next_href
+                    current_url = urljoin(self.source_url, next_href)
                 else:
                     current_url = None
 

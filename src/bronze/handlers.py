@@ -1,4 +1,5 @@
 import logging
+import json
 from typing import List, Dict, Any
 from datetime import datetime
 from src.common.connectors import get_supabase_client
@@ -57,7 +58,7 @@ class BronzeIngester:
             rows_to_insert.append({
                 "source_id": self.source_id,
                 "composite_key": composite_key,
-                "raw_data": raw_data,  # JSONB
+                "raw_data": json.dumps(raw_data),  # Convert dict to JSON string for JSONB
                 "scraped_at": scraped_at,
                 "hash_raw": hash_raw
             })

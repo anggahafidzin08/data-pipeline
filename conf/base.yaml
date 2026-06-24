@@ -43,7 +43,11 @@ data_contracts:
 scd2_config:
   silver:
     products_clean:
-      composite_key: "product_id"
+      composite_key:
+        - "product_id"
+        - "cpu_type"
+        - "builtin_ram"
+        - "builtin_memory"
       hash_diff_fields:
         - "price"
         - "stock"

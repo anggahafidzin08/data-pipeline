@@ -39,11 +39,13 @@ class SupabaseClient:
             # This is a placeholder that will be updated with actual Supabase auth.
 
             self._connection = psycopg2.connect(
-                host=f"{project_id}.supabase.co",
+                host=f"db.{project_id}.supabase.co",
                 port=5432,
                 database="postgres",
                 user="postgres",
-                password=settings.supabase_key
+                password=settings.supabase_key,
+                sslmode="require",
+                connect_timeout=30
             )
             logger.info("Connected to Supabase PostgreSQL")
         except Exception as e:

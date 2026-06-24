@@ -16,6 +16,12 @@ class Transformer:
         self.source_id = settings.source_id
         self.parser = SpecParser()
         self.validator = Validator()
+        # Get composite key fields from config
+        self.composite_key_fields = (
+            settings.scd2_config.get("silver", {})
+            .get("products_clean", {})
+            .get("composite_key", ["product_id"])
+        )
 
     def transform(self, raw_products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Transform raw products into clean, validated records."""
@@ -70,6 +76,17 @@ class Transformer:
         valid, msg = self.validator.validate_price(price)
         if not valid:
             validation.add_warning(msg)  # Warn but don't fail
+
+        # Generate composite_key from configured fields after parsing
+        composite_key_parts = []
+        for field in self.composite_key_fields:
+            if field == "product_id":
+                composite_key_parts.append(str(product_id))
+            elif field in parsed_spec:
+                composite_key_parts.append(str(parsed_spec[field]))
+            else:
+                composite_key_parts.append("unknown")
+        composite_key = "_".join(composite_key_parts)
 
         # Calculate hash_diff for SCD2 detection
         hash_diff_data = {
