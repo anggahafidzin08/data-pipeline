@@ -1,0 +1,7 @@
+pipeline:
+  log_level: "DEBUG"
+
+scraper:
+  timeout_seconds: 30
+  retry_attempts: 2
+  delay_between_requests: 0.5

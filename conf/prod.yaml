@@ -1,0 +1,7 @@
+pipeline:
+  log_level: "INFO"
+
+scraper:
+  timeout_seconds: 60
+  retry_attempts: 5
+  delay_between_requests: 2

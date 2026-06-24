@@ -1,0 +1,54 @@
+pipeline:
+  pipeline_name: "ecommerce_pipeline"
+  source_id: "ecommerce_site"
+  log_level: "INFO"
+
+scraper:
+  timeout_seconds: 30
+  retry_attempts: 2
+  delay_between_requests: 1
+
+data_contracts:
+  bronze:
+    raw_products:
+      checks:
+        - type: "row_count"
+          min_rows: 100
+          severity: "FAIL"
+        - type: "freshness"
+          max_age_hours: 25
+          severity: "WARN"
+
+  silver:
+    products_clean:
+      required_fields: ["product_id", "product_name", "price"]
+      field_validations:
+        - field: "price"
+          rule: "numeric_range"
+          min: 0.01
+          max: 1000000
+          severity: "FAIL"
+      checks:
+        - type: "row_count"
+          min_rows: 90
+          severity: "FAIL"
+
+  gold:
+    fact_products:
+      checks:
+        - type: "row_count"
+          min_rows: 90
+          severity: "FAIL"
+
+scd2_config:
+  silver:
+    products_clean:
+      composite_key: "product_id"
+      hash_diff_fields:
+        - "price"
+        - "stock"
+        - "screen_size"
+        - "cpu_type"
+        - "builtin_ram"
+        - "builtin_memory"
+        - "operating_system"
