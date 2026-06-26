@@ -1,14 +1,14 @@
 .PHONY: setup test lint run clean
 
 setup:
-	pip install -e ".[dev]"
+	python -m pip install -e ".[dev]"
 
 test:
-	pytest tests/ -v
+	python -m pytest tests/ -v
 
 lint:
-	black src/ tests/
-	ruff check src/ tests/
+	python -m black src/ tests/
+	python -m ruff check src/ tests/
 
 run:
 	python -m src.pipeline
